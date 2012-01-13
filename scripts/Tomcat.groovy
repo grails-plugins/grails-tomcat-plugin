@@ -10,6 +10,7 @@ target(main: '''\
 Script used to interact with remote Tomcat. The following subcommands are available:
 
 grails tomcat deploy - Deploy to a tomcat server
+grails tomcat redeploy - Update/Deploy to a tomcat server
 grails tomcat undeploy - Undeploy from a tomcat server
 ''') {
     depends(parseArguments, compile,createConfig)
@@ -19,16 +20,19 @@ grails tomcat undeploy - Undeploy from a tomcat server
     def user = config.tomcat.deploy.username ?: 'manager'
     def pass = config.tomcat.deploy.password ?: 'secret'
     def url = config.tomcat.deploy.url ?: 'http://localhost:8080/manager'
+    def update = (cmd == 'redeploy')
 
     switch(cmd) {
         case 'deploy':
+        case 'redeploy':
             war()
             println "Deploying application $serverContextPath to Tomcat"
             deploy(war:warName,
                    url:url,
                    path:serverContextPath,
                    username:user,
-                   password:pass)
+                   password:pass,
+                   update: update)
 
         break
         case 'list':

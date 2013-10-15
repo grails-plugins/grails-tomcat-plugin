@@ -21,7 +21,6 @@ import grails.util.BuildSettingsHolder
 import grails.util.PluginBuildSettings
 import grails.web.container.EmbeddableServer
 
-import org.apache.catalina.Context
 import org.apache.tomcat.util.scan.StandardJarScanner
 import org.codehaus.groovy.grails.cli.support.GrailsBuildEventListener
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
@@ -30,9 +29,8 @@ import org.springframework.util.ReflectionUtils
 /**
  * Provides common functionality for the inline and isolated variants of tomcat server.
  *
- * @author Graeme Rocher
- * @see org.grails.plugins.tomcat.fork.TomcatWarRunner
- * @see org.grails.plugins.tomcat.fork.TomcatDevelopmentRunner
+ * @see IsolatedWarTomcatServer
+ * @see InlineExplodedTomcatServer
  */
 abstract class TomcatServer implements EmbeddableServer {
 
@@ -48,8 +46,6 @@ abstract class TomcatServer implements EmbeddableServer {
     protected String truststore
     protected File truststoreFile
     protected String trustPassword
-    protected Boolean shouldScan = false
-    protected Set<String> extraJarsToSkip
 
     // These are set from the outside in _GrailsRun
     def grailsConfig
@@ -73,30 +69,21 @@ abstract class TomcatServer implements EmbeddableServer {
             keyPassword = "123456"
         }
 
-        def userTruststore = getConfigParam("truststorePath")
-        if (userKeystore) {
-            truststore = userTruststore
-            trustPassword = getConfigParam("truststorePassword") ?: "changeit"
-        } else {
-            truststore = "${buildSettings.grailsWorkDir}/ssl/truststore"
-            trustPassword = "123456"
-        }
-
+        truststore = "${buildSettings.grailsWorkDir}/ssl/truststore"
         truststoreFile = new File(truststore)
+        trustPassword = "123456"
 
         System.setProperty('org.mortbay.xml.XmlParser.NotValidating', 'true')
 
-        def scanConfig = getConfigParam("scan")
-        if(scanConfig) {
-            shouldScan = (Boolean) (scanConfig.enabled instanceof Boolean ? scanConfig.enabled : false)
-            extraJarsToSkip = (scanConfig.excludes instanceof Collection) ? scanConfig.excludes.collect { it.toString() } : []
-        }
-        
         tomcatDir.deleteDir()
     }
-    
-    protected void configureJarScanner(Context context) {
-        if (extraJarsToSkip && shouldScan) {
+
+    protected boolean checkAndInitializingClasspathScanning() {
+        def scanConfig = getConfigParam("scan")
+        def shouldScan = (Boolean) (scanConfig.enabled instanceof Boolean ? scanConfig.enabled : false)
+        def extraJarsToSkip = scanConfig.excludes
+        if (extraJarsToSkip instanceof List && shouldScan) {
+
             try {
                 def jarsToSkipField = ReflectionUtils.findField(StandardJarScanner, "defaultJarsToSkip", Set)
                 ReflectionUtils.makeAccessible(jarsToSkipField)
@@ -106,11 +93,8 @@ abstract class TomcatServer implements EmbeddableServer {
                 // ignore
             }
         }
-        def jarScanner = new StandardJarScanner()
-        jarScanner.setScanClassPath(shouldScan)
-        context.setJarScanner(jarScanner)
+        shouldScan
     }
-
     /**
      * The host and port params will never be null, defaults will be passed if necessary.
      *
@@ -137,7 +121,7 @@ abstract class TomcatServer implements EmbeddableServer {
     }
 
     void start(String host, int port) {
-        doStart(host ?: DEFAULT_HOST, port ?: DEFAULT_PORT, 0)
+        doStart(host ?: DEFAULT_HOST, port, -1)
     }
 
     void startSecure() {
@@ -157,7 +141,7 @@ abstract class TomcatServer implements EmbeddableServer {
             }
         }
 
-        doStart(host ?: DEFAULT_HOST, httpPort ?: DEFAULT_PORT, httpsPort ?: DEFAULT_SECURE_PORT)
+        doStart(host ?: DEFAULT_HOST, (httpPort >= 0) ? httpPort : DEFAULT_PORT, (httpsPort >= 0) ? httpsPort : DEFAULT_SECURE_PORT)
     }
 
     protected File getWorkDirFile(String path) {
@@ -181,15 +165,15 @@ abstract class TomcatServer implements EmbeddableServer {
         }
 
         getKeyToolClass().main(
-                "-genkey",
-                "-alias", "localhost",
-                "-dname", "CN=localhost,OU=Test,O=Test,C=US",
-                "-keyalg", "RSA",
-                "-validity", "365",
-                "-storepass", "key",
-                "-keystore", keystoreFile.absolutePath,
-                "-storepass", keyPassword,
-                "-keypass", keyPassword)
+            "-genkey",
+            "-alias", "localhost",
+            "-dname", "CN=localhost,OU=Test,O=Test,C=US",
+            "-keyalg", "RSA",
+            "-validity", "365",
+            "-storepass", "key",
+            "-keystore", keystoreFile.absolutePath,
+            "-storepass", keyPassword,
+            "-keypass", keyPassword)
 
         println 'Created SSL Certificate.'
     }

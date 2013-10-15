@@ -15,17 +15,18 @@
  */
 package org.grails.plugins.tomcat.fork
 
-import grails.build.logging.GrailsConsole
 import grails.util.BuildSettings
-import grails.util.Environment
+import grails.util.BuildSettingsHolder
 import grails.web.container.EmbeddableServer
 import groovy.transform.CompileStatic
 
+import org.apache.catalina.Context
 import org.apache.catalina.startup.Tomcat
 import org.codehaus.groovy.grails.cli.fork.ExecutionContext
 import org.codehaus.groovy.grails.cli.fork.ForkedGrailsProcess
-import org.codehaus.groovy.grails.plugins.GrailsPluginInfo
+import org.codehaus.groovy.grails.io.support.Resource
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
+import org.grails.plugins.tomcat.InlineExplodedTomcatServer
 import org.grails.plugins.tomcat.TomcatKillSwitch
 
 /**
@@ -36,12 +37,12 @@ import org.grails.plugins.tomcat.TomcatKillSwitch
  */
 class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer {
 
-    public static final GrailsConsole CONSOLE = GrailsConsole.getInstance()
-    @Delegate EmbeddableServer tomcatRunner
+    @Delegate TomcatRunner tomcatRunner
+    TomcatExecutionContext executionContext
+    ClassLoader forkedClassLoader
 
     ForkedTomcatServer(TomcatExecutionContext executionContext) {
         this.executionContext = executionContext
-        this.forkReserve = true
     }
 
     private ForkedTomcatServer() {
@@ -57,83 +58,74 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
 
     @CompileStatic
     def run() {
-        if (!isReserveProcess()) {
-            runInternal()
+        TomcatExecutionContext ec = executionContext
+        def buildSettings = new BuildSettings(ec.grailsHome, ec.baseDir)
+        buildSettings.loadConfig()
+
+        BuildSettingsHolder.settings = buildSettings
+
+        URLClassLoader classLoader = createClassLoader(buildSettings)
+        forkedClassLoader = classLoader
+
+        initializeLogging(ec.grailsHome,classLoader)
+
+        tomcatRunner = new TomcatRunner("$buildSettings.baseDir/web-app", buildSettings.webXmlLocation.absolutePath, ec.contextPath, classLoader)
+        if (ec.securePort >= 0) {
+            tomcatRunner.startSecure(ec.host, ec.port, ec.securePort)
+            ec.securePort = tomcatRunner.getLocalHttpsPort()
         }
         else {
-            CONSOLE.verbose("Waiting for resume signal for idle JVM")
-            waitForResume()
-            CONSOLE.verbose("Resuming idle JVM")
-            runInternal()
-        }
-    }
-
-    protected void runInternal() {
-        TomcatExecutionContext ec = (TomcatExecutionContext)executionContext
-        BuildSettings buildSettings = initializeBuildSettings(ec)
-        URLClassLoader classLoader = initializeClassLoader(buildSettings)
-        initializeLogging(ec.grailsHome, classLoader)
-
-        tomcatRunner = createTomcatRunner(buildSettings, ec, classLoader)
-        if (ec.securePort > 0) {
-            tomcatRunner.startSecure(ec.host, ec.port, ec.securePort)
-        } else {
             tomcatRunner.start(ec.host, ec.port)
         }
-
+        ec.port = tomcatRunner.getLocalHttpPort()
+        File completedExecutionContext = new File(ec.completedContextPath)
+        completedExecutionContext.withOutputStream { OutputStream fos ->
+            def oos = new ObjectOutputStream(fos)
+            oos.writeObject(ec)
+        }
         setupReloading(classLoader, buildSettings)
-    }
-
-    @Override
-    protected void discoverAndSetAgent(ExecutionContext executionContext) {
-        TomcatExecutionContext tec = (TomcatExecutionContext)executionContext
-        // no agent for war mode
-        if (!tec.warPath) {
-            super.discoverAndSetAgent(executionContext)
-        }
-    }
-
-    @CompileStatic
-    protected EmbeddableServer createTomcatRunner(BuildSettings buildSettings, TomcatExecutionContext ec, URLClassLoader classLoader) {
-        if (ec.warPath) {
-            if (Environment.isFork()) {
-                BuildSettings.initialiseDefaultLog4j(classLoader)
-            }
-
-            new TomcatWarRunner(ec.warPath, ec.contextPath)
-        }
-        else {
-            new TomcatDevelopmentRunner("$buildSettings.baseDir/web-app", buildSettings.webXmlLocation.absolutePath, ec.contextPath, classLoader)
-        }
     }
 
     @CompileStatic
     void start(String host, int port) {
-        startSecure(host, port, 0)
+        startSecure(host, port, -1)
     }
 
     @CompileStatic
     void startSecure(String host, int httpPort, int httpsPort) {
-        final ec = (TomcatExecutionContext)executionContext
+        final ec = executionContext
         ec.host = host
         ec.port = httpPort
         ec.securePort = httpsPort
+
+        def baseName = executionContext.getBaseDir().canonicalFile.name
+        File tempFile = File.createTempFile(baseName, "grails-completed-execution-context")
+        ec.completedContextPath = tempFile.absolutePath
+        tempFile.delete()
+
         def t = new Thread( {
             final process = fork()
             Runtime.addShutdownHook {
-                try {
-                    process.destroy()
-                } catch (e) {
-                    // ignore, nothing we can do
-                }
+                process.destroy()
             }
         } )
 
         t.start()
-        while(!isAvailable(host, httpPort)) {
+        loadCompletedExecutionContext(ec.completedContextPath)
+        while(!isAvailable(host, getLocalHttpPort())) {
             sleep 100
         }
         System.setProperty(TomcatKillSwitch.TOMCAT_KILL_SWITCH_ACTIVE, "true")
+    }
+
+    @Override
+    int getLocalHttpPort() {
+        executionContext.port
+    }
+
+    @Override
+    int getLocalHttpsPort() {
+        executionContext.securePort
     }
 
     @CompileStatic
@@ -146,57 +138,109 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
         }
     }
 
+    @Override
+    ExecutionContext createExecutionContext() {
+        return executionContext
+    }
+
     void stop() {
-        final ec = (TomcatExecutionContext)executionContext
         try {
-            new URL("http://${ec?.host ?: 'localhost'}:${(ec?.port ?: 8080 )  + 1}").text
+            new URL("http://${executionContext?.host}:${executionContext?.port - 1}").text
         } catch(e) {
             // ignore
         }
     }
 
-    @CompileStatic
-    @Override
-    Collection<File> findSystemClasspathJars(BuildSettings buildSettings) {
-        Set<File> jars = []
-        jars.addAll super.findSystemClasspathJars(buildSettings)
-
-        GrailsPluginInfo info = GrailsPluginUtils.getPluginBuildSettings().getPluginInfoForName('tomcat')
-        String jarName = "grails-plugin-tomcat-${info.version}.jar"
-        File jar = info.descriptor.file.parentFile.listFiles().find { File f -> f.name.equals(jarName) }
-
-        if (jar?.exists()) {
-            jars << jar
-        }
-        else {
-            CONSOLE.error "Tomcat plugin classes JAR $jarName not found"
+    void loadCompletedExecutionContext(String path) {
+        File completedEc = new File(path)
+        while(!completedEc.exists()) {
+            sleep 100
         }
 
-        jars
+        executionContext = readExecutionContext(path)
+        completedEc.deleteOnExit()
     }
 
-    static void startKillSwitch(final Tomcat tomcat, final int serverPort) {
-        new Thread(new TomcatKillSwitch(tomcat, serverPort)).start()
-    }
+    class TomcatRunner extends InlineExplodedTomcatServer {
 
-    void restart() {
-        stop()
-        start()
-    }
+        private String currentHost
+        private int currentPort
 
-    void start() {
-        start(null, null)
-    }
+        TomcatRunner(String basedir, String webXml, String contextPath, ClassLoader classLoader) {
+            super(basedir, webXml, contextPath, classLoader)
+        }
 
-    void start(int port) {
-        start(null, port)
-    }
+        @Override
+        @CompileStatic
+        protected void initialize(Tomcat tomcat) {
+            final autodeployDir = buildSettings.autodeployDir
+            if (autodeployDir.exists()) {
+                final wars = autodeployDir.listFiles()
+                for (File f in wars) {
+                    final fileName = f.name
+                    if (fileName.endsWith(".war")) {
+                        tomcat.addWebapp(f.name - '.war', f.absolutePath)
+                    }
+                }
+            }
 
-    void startSecure() {
-        startSecure(null)
-    }
+            invokeCustomizer(tomcat)
+        }
 
-    void startSecure(int port) {
-        startSecure(null, null, port)
+        private void invokeCustomizer(Tomcat tomcat) {
+            Class cls = null
+            try {
+                cls = forkedClassLoader.loadClass("org.grails.plugins.tomcat.ForkedTomcatCustomizer")
+            } catch (Throwable e) {
+                // ignore
+            }
+
+            if (cls != null) {
+                try {
+                    cls.newInstance().customize(tomcat)
+                } catch (e) {
+                    throw new RuntimeException("Error invoking Tomcat server customizer: " + e.getMessage(), e)
+                }
+            }
+        }
+
+        @Override
+        protected void configureAliases(Context context) {
+            def aliases = []
+            final directories = GrailsPluginUtils.getPluginDirectories()
+            for (Resource dir in directories) {
+                def webappDir = new File("${dir.file.absolutePath}/web-app")
+                if (webappDir.exists()) {
+                    aliases << "/plugins/${dir.file.name}=${webappDir.absolutePath}"
+                }
+            }
+            if (aliases) {
+                context.setAliases(aliases.join(','))
+            }
+        }
+
+        @Override
+        void start(String host, int port) {
+            super.start(host, port)
+            currentHost = host
+            currentPort = getLocalHttpPort()
+        }
+
+        @Override
+        void stop() {
+            try {
+                new URL("http://${currentHost}:${currentPort - 1}").text
+            } catch(e) {
+                // ignore
+            }
+        }
     }
+}
+
+class TomcatExecutionContext extends ExecutionContext {
+    String contextPath
+    String host = EmbeddableServer.DEFAULT_HOST
+    int port = EmbeddableServer.DEFAULT_PORT
+    int securePort
+    String completedContextPath
 }

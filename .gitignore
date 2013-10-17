@@ -4,6 +4,7 @@ stacktrace.log
 target
 web-app
 *.zip
+*.zip.sha1
 .settings
 
 .idea

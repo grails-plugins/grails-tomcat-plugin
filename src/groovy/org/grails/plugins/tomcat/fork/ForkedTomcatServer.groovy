@@ -26,7 +26,9 @@ import org.codehaus.groovy.grails.cli.fork.ExecutionContext
 import org.codehaus.groovy.grails.cli.fork.ForkedGrailsProcess
 import org.codehaus.groovy.grails.plugins.GrailsPluginInfo
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
+import org.codehaus.groovy.grails.plugins.GrailsVersionUtils
 import org.grails.plugins.tomcat.TomcatKillSwitch
+import org.grails.plugins.tomcat.TomcatServer
 
 /**
  * An implementation of the Tomcat server that runs in forked mode.
@@ -75,13 +77,24 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
         initializeLogging(ec.grailsHome, classLoader)
 
         tomcatRunner = createTomcatRunner(buildSettings, ec, classLoader)
-        if (ec.securePort > 0) {
+        if (ec.securePort > -1) {
             tomcatRunner.startSecure(ec.host, ec.port, ec.securePort)
+            ec.securePort = ((TomcatServer) tomcatRunner).localHttpsPort
         } else {
             tomcatRunner.start(ec.host, ec.port)
         }
-
+        ec.port = ((TomcatServer) tomcatRunner).localHttpPort
+        outputExecutionContext(ec, ec.completedContextPath)
         setupReloading(classLoader, buildSettings)
+    }
+
+    @CompileStatic
+    protected void outputExecutionContext(ExecutionContext ec, String path) {
+        File contextFile = new File(path)
+        contextFile.withOutputStream { OutputStream fos ->
+            def oos = new ObjectOutputStream(fos)
+            oos.writeObject(ec)
+        }
     }
 
     @Override
@@ -109,7 +122,7 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
 
     @CompileStatic
     void start(String host, int port) {
-        startSecure(host, port, 0)
+        startSecure(host, port, -1)
     }
 
     @CompileStatic
@@ -118,6 +131,7 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
         ec.host = host
         ec.port = httpPort
         ec.securePort = httpsPort
+        createCompletedContextFile(ec)
         def t = new Thread( {
             final process = fork()
             Runtime.addShutdownHook {
@@ -130,10 +144,18 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
         } )
 
         t.start()
-        while(!isAvailable(host, httpPort)) {
+        loadCompletedExecutionContext(ec.completedContextPath)
+        while(!isAvailable(host, localHttpPort)) {
             sleep 100
         }
         System.setProperty(TomcatKillSwitch.TOMCAT_KILL_SWITCH_ACTIVE, "true")
+    }
+
+    protected String createCompletedContextFile(TomcatExecutionContext ec) {
+        def baseName = ec.baseDir.canonicalFile.name
+        File tempFile = File.createTempFile(baseName, "grails-completed-execution-context")
+        ec.completedContextPath = tempFile.absolutePath
+        tempFile.delete()
     }
 
     @CompileStatic
@@ -147,9 +169,11 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
     }
 
     void stop() {
+        BuildSettings buildSettings = initializeBuildSettings(executionContext)
+        def killSwitchOffset = TomcatServer.isRandomPortSupported(buildSettings) ? -1 : 1
         final ec = (TomcatExecutionContext)executionContext
         try {
-            new URL("http://${ec?.host ?: 'localhost'}:${(ec?.port ?: 8080 )  + 1}").text
+            new URL("http://${ec?.host ?: 'localhost'}:${(ec?.port ?: 8080 ) + killSwitchOffset}").text
         } catch(e) {
             // ignore
         }
@@ -179,6 +203,10 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
         new Thread(new TomcatKillSwitch(tomcat, serverPort)).start()
     }
 
+    static void startKillSwitch(final Tomcat tomcat, final int serverPort, final String grailsVersion) {
+        new Thread(new TomcatKillSwitch(tomcat, serverPort, grailsVersion)).start()
+    }
+
     void restart() {
         stop()
         start()
@@ -198,5 +226,30 @@ class ForkedTomcatServer extends ForkedGrailsProcess implements EmbeddableServer
 
     void startSecure(int port) {
         startSecure(null, null, port)
+    }
+
+    int getLocalHttpPort() {
+        ((TomcatExecutionContext) executionContext).port
+    }
+
+    int getLocalHttpsPort() {
+        ((TomcatExecutionContext) executionContext).securePort
+    }
+
+    private void loadCompletedExecutionContext(String path) {
+        File completedEc = new File(path)
+        while(!completedEc.exists()) {
+            sleep 100
+        }
+        executionContext = loadCompletedExecutionContext(completedEc)
+        completedEc.deleteOnExit()
+    }
+
+    private ExecutionContext loadCompletedExecutionContext(File file) {
+        if (file.exists()) {
+            return (ExecutionContext) file.withObjectInputStream(getClass().classLoader) { ois ->
+                return ois.readObject()
+            }
+        }
     }
 }

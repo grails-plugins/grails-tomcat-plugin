@@ -103,25 +103,40 @@ class TomcatWarRunner extends TomcatServer {
 
         connector.setURIEncoding("UTF-8")
 
-        if (httpsPort) {
+        if (httpsPort > -1) {
             enableSslConnector(host, httpsPort)
         }
 
-        final int serverPort = httpPort
-        ForkedTomcatServer.startKillSwitch(tomcat, serverPort)
-
         try {
             tomcat.start()
-            String message = "Server running. Browse to http://"+(host != null ? host : "localhost")+":"+httpPort+contextPath
+            httpPort = localHttpPort
+            httpsPort = localHttpsPort
+            String message = "Server running. Browse to http://"+(host != null ? host : "localhost")+":"+httpPort+contextPath+
+                    (httpsPort > -1 ? " or https://${host ?: 'localhost'}:$httpsPort/$contextPath" : '')
             CONSOLE.addStatus(message)
         } catch (LifecycleException e) {
             CONSOLE.error("Error loading Tomcat: " + e.getMessage(), e)
             System.exit(1)
         }
+
+        final int serverPort = httpPort
+        ForkedTomcatServer.startKillSwitch(tomcat, serverPort, buildSettings.grailsVersion)
     }
 
     @Override
     void stop() {
         tomcat.stop()
+    }
+
+    @Override
+    int getLocalHttpPort() {
+        tomcat.connector.port
+    }
+
+    @Override
+    int getLocalHttpsPort() {
+        tomcat.service.findConnectors().find { Connector c ->
+            c.scheme == 'https'
+        }?.localPort ?: -1
     }
 }

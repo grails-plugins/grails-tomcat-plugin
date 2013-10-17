@@ -37,6 +37,7 @@ class TomcatExecutionContext extends ExecutionContext {
     int port = EmbeddableServer.DEFAULT_PORT
     int securePort
     String warPath
+    String completedContextPath
 
     @Override
     protected List<File> buildMinimalIsolatedClasspath(BuildSettings buildSettings) {

@@ -108,7 +108,7 @@ class InlineExplodedTomcatServer extends TomcatServer {
         tomcat.port = httpPort
         tomcat.connector.URIEncoding = 'UTF-8'
 
-        if (httpsPort) {
+        if (httpsPort > -1) {
             def sslConnector = loadInstance('org.apache.catalina.connector.Connector')
             sslConnector.scheme = "https"
             sslConnector.secure = true
@@ -132,17 +132,26 @@ class InlineExplodedTomcatServer extends TomcatServer {
             tomcat.service.addConnector(sslConnector)
         }
 
-        if (Environment.isFork()) {
-            ForkedTomcatServer.startKillSwitch(tomcat, httpPort)
-        }
         tomcat.start()
-
+        if (Environment.isFork()) {
+            ForkedTomcatServer.startKillSwitch(tomcat, localHttpPort, buildSettings.grailsVersion)
+        }
     }
 
     void stop() {
         tomcat.stop()
         tomcat.destroy()
         GrailsPluginUtils.clearCaches()
+    }
+
+    int getLocalHttpPort() {
+        return tomcat.connector.getLocalPort()
+    }
+
+    int getLocalHttpsPort() {
+        tomcat.service.findConnectors().find {
+            it.scheme == 'https'
+        }?.localPort ?: -1
     }
 
     private loadInstance(String name) {

@@ -6,6 +6,7 @@ import org.apache.catalina.startup.Tomcat
 import org.codehaus.groovy.grails.io.support.Resource
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
 import org.grails.plugins.tomcat.InlineExplodedTomcatServer
+import org.grails.plugins.tomcat.TomcatServer
 
 /**
  * @author Graeme Rocher
@@ -82,7 +83,8 @@ class TomcatDevelopmentRunner extends InlineExplodedTomcatServer {
     @Override
     void stop() {
         try {
-            new URL("http://${currentHost}:${currentPort+ 1}").text
+            def killSwitchOffset = TomcatServer.isRandomPortSupported(buildSettings) ? -1 : 1
+            new URL("http://${currentHost}:${currentPort + killSwitchOffset}").text
         } catch(e) {
             // ignore
         }

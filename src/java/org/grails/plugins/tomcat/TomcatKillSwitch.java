@@ -2,6 +2,7 @@ package org.grails.plugins.tomcat;
 
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.startup.Tomcat;
+import org.codehaus.groovy.grails.plugins.GrailsVersionUtils;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -18,10 +19,16 @@ public class TomcatKillSwitch implements Runnable {
 
     private Tomcat tomcat;
     private int serverPort;
+    private String grailsVersion;
 
     public TomcatKillSwitch(Tomcat tomcat, int serverPort) {
         this.tomcat = tomcat;
         this.serverPort = serverPort;
+    }
+
+    public TomcatKillSwitch(Tomcat tomcat, int serverPort, String grailsVersion) {
+        this(tomcat, serverPort);
+        this.grailsVersion = grailsVersion;
     }
 
     public static boolean isActive() {
@@ -30,7 +37,8 @@ public class TomcatKillSwitch implements Runnable {
 
     public void run() {
         System.setProperty("TomcatKillSwitch.active", "true");
-        int killListenerPort = serverPort + 1;
+        int killPortOffset = isRandomPortSupported(grailsVersion) ? -1 : 1;
+        int killListenerPort = serverPort + killPortOffset;
         ServerSocket serverSocket = createKillSwitch(killListenerPort);
         if (serverSocket != null) {
             try {
@@ -55,6 +63,14 @@ public class TomcatKillSwitch implements Runnable {
             return new ServerSocket(killListenerPort);
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    public static boolean isRandomPortSupported(String grailsVersion) {
+        if (grailsVersion == null) {
+            return false;
+        } else {
+            return GrailsVersionUtils.isValidVersion(grailsVersion, "2.3.2 > *");
         }
     }
 }

@@ -25,6 +25,7 @@ import org.apache.catalina.Context
 import org.apache.tomcat.util.scan.StandardJarScanner
 import org.codehaus.groovy.grails.cli.support.GrailsBuildEventListener
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
+import org.codehaus.groovy.grails.plugins.GrailsVersionUtils
 import org.springframework.util.ReflectionUtils
 
 /**
@@ -123,6 +124,10 @@ abstract class TomcatServer implements EmbeddableServer {
      */
     abstract void stop()
 
+    abstract int getLocalHttpPort()
+
+    abstract int getLocalHttpsPort()
+
     void restart() {
         stop()
         start()
@@ -137,7 +142,11 @@ abstract class TomcatServer implements EmbeddableServer {
     }
 
     void start(String host, int port) {
-        doStart(host ?: DEFAULT_HOST, port ?: DEFAULT_PORT, 0)
+        if  (randomPortSupported) {
+            doStart(host ?: DEFAULT_HOST, port, -1)
+        } else {
+            doStart(host ?: DEFAULT_HOST, port ?: DEFAULT_PORT, -1)
+        }
     }
 
     void startSecure() {
@@ -156,8 +165,13 @@ abstract class TomcatServer implements EmbeddableServer {
                 createSSLCertificate()
             }
         }
-
-        doStart(host ?: DEFAULT_HOST, httpPort ?: DEFAULT_PORT, httpsPort ?: DEFAULT_SECURE_PORT)
+        if (randomPortSupported) {
+            doStart(host ?: DEFAULT_HOST,
+                    (httpPort >= 0) ? httpPort : DEFAULT_PORT,
+                    (httpsPort >= 0) ? httpsPort : DEFAULT_SECURE_PORT)
+        } else {
+            doStart(host ?: DEFAULT_HOST, httpPort ?: DEFAULT_PORT, httpsPort ?: DEFAULT_SECURE_PORT)
+        }
     }
 
     protected File getWorkDirFile(String path) {
@@ -201,5 +215,13 @@ abstract class TomcatServer implements EmbeddableServer {
             // no try/catch for this one, if neither is found let it fail
             Class.forName('com.ibm.crypto.tools.KeyTool')
         }
+    }
+
+    protected boolean isRandomPortSupported() {
+        isRandomPortSupported(buildSettings)
+    }
+
+    public static boolean isRandomPortSupported(BuildSettings buildSettings) {
+        TomcatKillSwitch.isRandomPortSupported(buildSettings.grailsVersion)
     }
 }

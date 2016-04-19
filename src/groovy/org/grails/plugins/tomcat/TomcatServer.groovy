@@ -297,7 +297,7 @@ abstract class TomcatServer implements EmbeddableServer {
 
 		getKeyToolClass().main(
 				'-genkey',
-				'-alias', 'localhost',
+				'-alias', 'tomcat',
 				'-dname', 'CN=localhost,OU=Test,O=Test,C=US',
 				'-keyalg', 'RSA',
 				'-validity', '365',

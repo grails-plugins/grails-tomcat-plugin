@@ -21,9 +21,7 @@ import groovy.transform.CompileStatic
 
 import org.apache.catalina.Context
 import org.apache.catalina.LifecycleException
-import org.apache.catalina.connector.Connector
 import org.apache.catalina.startup.Tomcat
-import org.apache.coyote.http11.Http11NioProtocol
 import org.grails.plugins.tomcat.TomcatServer
 
 /**
@@ -37,7 +35,6 @@ class TomcatWarRunner extends TomcatServer {
 
 	protected static final GrailsConsole CONSOLE = GrailsConsole.getInstance()
 
-	protected Tomcat tomcat = new Tomcat()
 	protected String warPath
 	protected String contextPath
 
@@ -46,68 +43,21 @@ class TomcatWarRunner extends TomcatServer {
 		this.contextPath = contextPath
 	}
 
-	protected void enableSslConnector(String host, int httpsPort) {
-		Connector sslConnector
-		try {
-			sslConnector = new Connector()
-		}
-		catch (Exception e) {
-			throw new RuntimeException("Couldn't create HTTPS connector", e)
-		}
-
-		sslConnector.scheme = "https"
-		sslConnector.secure = true
-		sslConnector.port = httpsPort
-		sslConnector.setProperty "SSLEnabled", "true"
-		sslConnector.setAttribute "keystoreFile", keystoreFile
-		sslConnector.setAttribute "keystorePass", keyPassword
-		sslConnector.URIEncoding = "UTF-8"
-
-		if (!host.equals("localhost")) {
-			sslConnector.setAttribute "address", host
-		}
-
-		tomcat.service.addConnector sslConnector
-	}
-
 	@Override
 	protected void doStart(String host, int httpPort, int httpsPort) {
 
 		Metadata.getCurrent()[Metadata.WAR_DEPLOYED] = "true"
-		tomcat.port = httpPort
 		tomcat.silent = true
 
-		if (getConfigParam("nio")) {
-			CONSOLE.updateStatus "Enabling Tomcat NIO Connector"
-			def connector = new Connector(Http11NioProtocol.name)
-			connector.port = httpPort
-			tomcat.service.addConnector connector
-			tomcat.connector = connector
-		}
-
-		tomcat.baseDir = tomcatDir
 		try {
-			configureJarScanner tomcat.addWebapp(contextPath, warPath)
+			context = tomcat.addWebapp(contextPath, warPath)
 		}
 		catch (Throwable e) {
 			CONSOLE.error "Error loading Tomcat: $e.message", e
 			System.exit 1
 		}
 
-		tomcat.enableNaming()
-
-		final Connector connector = tomcat.connector
-
-		// Only bind to host name if we aren't using the default
-		if (!host.equals("localhost")) {
-			connector.setAttribute "address", host
-		}
-
-		connector.URIEncoding = "UTF-8"
-
-		if (httpsPort) {
-			enableSslConnector host, httpsPort
-		}
+		super.doStart host, httpPort, httpsPort
 
 		ForkedTomcatServer.startKillSwitch tomcat, httpPort
 

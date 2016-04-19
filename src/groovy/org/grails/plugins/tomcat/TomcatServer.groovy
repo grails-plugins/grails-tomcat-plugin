@@ -24,6 +24,9 @@ import groovy.transform.CompileStatic
 import groovy.transform.TypeCheckingMode
 
 import org.apache.catalina.Context
+import org.apache.catalina.connector.Connector
+import org.apache.catalina.startup.Tomcat
+import org.apache.coyote.http11.Http11NioProtocol
 import org.apache.tomcat.util.scan.StandardJarScanner
 import org.codehaus.groovy.grails.cli.support.GrailsBuildEventListener
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
@@ -47,14 +50,17 @@ abstract class TomcatServer implements EmbeddableServer {
 	protected final File workDir
 	protected final File tomcatDir
 
-	protected final boolean usingUserKeystore
-	protected final File keystoreFile
-	protected final String keyPassword
+	protected boolean usingUserKeystore
+	protected File keystoreFile
+	protected String keyPassword
 	protected String truststore
 	protected File truststoreFile
 	protected String trustPassword
 	protected Boolean shouldScan = false
 	protected Set<String> extraJarsToSkip
+
+	Context context
+	final Tomcat tomcat = new Tomcat()
 
 	// These are set from the outside in _GrailsRun
 	def grailsConfig
@@ -65,35 +71,14 @@ abstract class TomcatServer implements EmbeddableServer {
 		pluginSettings = GrailsPluginUtils.getPluginBuildSettings()
 
 		workDir = buildSettings.projectWorkDir
-		tomcatDir = getWorkDirFile("tomcat")
+		tomcatDir = getWorkDirFile('tomcat')
+		tomcat.baseDir = tomcatDir.absolutePath
 
-		def userKeystore = getConfigParam("keystorePath")
-		if (userKeystore) {
-			usingUserKeystore = true
-			keystoreFile = new File(userKeystore.toString())
-			keyPassword = getConfigParam("keystorePassword") ?: "changeit" // changeit is the keystore default
-		}
-		else {
-			usingUserKeystore = false
-			keystoreFile = getWorkDirFile("ssl/keystore")
-			keyPassword = "123456"
-		}
-
-		def userTruststore = getConfigParam("truststorePath")
-		if (userKeystore) {
-			truststore = userTruststore
-			trustPassword = getConfigParam("truststorePassword") ?: "changeit"
-		}
-		else {
-			truststore = "${buildSettings.grailsWorkDir}/ssl/truststore"
-			trustPassword = "123456"
-		}
-
-		truststoreFile = new File(truststore)
+		initKeystore()
 
 		System.setProperty 'org.mortbay.xml.XmlParser.NotValidating', 'true'
 
-		Map scanConfig = (Map)getConfigParam("scan")
+		Map scanConfig = (Map)getConfigParam('scan')
 		if (scanConfig) {
 			shouldScan = (Boolean) (scanConfig.enabled instanceof Boolean ? scanConfig.enabled : false)
 			extraJarsToSkip = (Set)((scanConfig.excludes instanceof Collection) ? scanConfig.excludes.collect { it.toString() } : [])
@@ -103,10 +88,73 @@ abstract class TomcatServer implements EmbeddableServer {
 		new File(tomcatDir, 'webapps').mkdirs()
 	}
 
+	protected void initKeystore() {
+		def userKeystore = getConfigParam('keystorePath')
+		if (userKeystore) {
+			usingUserKeystore = true
+			keystoreFile = new File(userKeystore.toString())
+			keyPassword = getConfigParam('keystorePassword') ?: 'changeit' // changeit is the keystore default
+		}
+		else {
+			usingUserKeystore = false
+			keystoreFile = getWorkDirFile('ssl/keystore')
+			keyPassword = '123456'
+		}
+
+		def userTruststore = getConfigParam('truststorePath')
+		if (userKeystore) {
+			truststore = userTruststore
+			trustPassword = getConfigParam('truststorePassword') ?: 'changeit'
+		}
+		else {
+			truststore = "${buildSettings.grailsWorkDir}/ssl/truststore"
+			trustPassword = '123456'
+		}
+
+		truststoreFile = new File(truststore)
+	}
+
+	@CompileStatic(TypeCheckingMode.SKIP)
+	protected void configureSsl(String host, int httpsPort) {
+		def sslConnector
+		try {
+			sslConnector = loadInstance('org.apache.catalina.connector.Connector')
+		}
+		catch (Exception e) {
+			throw new RuntimeException("Couldn't create HTTPS connector", e)
+		}
+
+		sslConnector.scheme = 'https'
+		sslConnector.secure = true
+		sslConnector.port = httpsPort
+		sslConnector.setProperty 'SSLEnabled', 'true'
+		sslConnector.URIEncoding = 'UTF-8'
+
+		if (host != 'localhost') {
+			sslConnector.setAttribute 'address', host
+		}
+
+		sslConnector.setAttribute 'keystoreFile', keystoreFile.absolutePath
+		sslConnector.setAttribute 'keystorePass', keyPassword
+
+		if (truststoreFile.exists()) {
+			CONSOLE.addStatus "Using truststore $truststore"
+			sslConnector.setAttribute 'truststoreFile', truststore
+			sslConnector.setAttribute 'truststorePass', trustPassword
+			sslConnector.setAttribute 'clientAuth', getConfigParam('clientAuth') ?: 'want'
+		}
+
+		tomcat.service.addConnector sslConnector
+	}
+
+	protected loadInstance(String name) {
+		tomcat.getClass().classLoader.loadClass(name).newInstance()
+	}
+
 	protected void configureJarScanner(Context context) {
 		if (extraJarsToSkip && shouldScan) {
 			try {
-				def jarsToSkipField = ReflectionUtils.findField(StandardJarScanner, "defaultJarsToSkip", Set)
+				def jarsToSkipField = ReflectionUtils.findField(StandardJarScanner, 'defaultJarsToSkip', Set)
 				ReflectionUtils.makeAccessible jarsToSkipField
 				Set jarsToSkip = (Set)jarsToSkipField.get(StandardJarScanner)
 				jarsToSkip.addAll extraJarsToSkip
@@ -122,7 +170,41 @@ abstract class TomcatServer implements EmbeddableServer {
 	 *
 	 * If httpsPort is > 0, the server should listen for https requests on that port.
 	 */
-	protected abstract void doStart(String host, int httpPort, int httpsPort)
+	protected void doStart(String host, int httpPort, int httpsPort) {
+		tomcat.port = httpPort
+
+		if (getConfigParam("nio")) {
+			CONSOLE.updateStatus "Enabling Tomcat NIO Connector"
+			def connector = new Connector(Http11NioProtocol.name)
+			connector.port = httpPort
+			tomcat.service.addConnector connector
+			tomcat.connector = connector
+		}
+
+		try {
+			configureJarScanner context
+		}
+		catch (Throwable e) {
+			CONSOLE.error "Error loading Tomcat: $e.message", e
+			System.exit 1
+		}
+
+		tomcat.enableNaming()
+
+		final Connector connector = tomcat.connector
+
+		// Only bind to host name if we aren't using the default
+		if (host != "localhost") {
+			connector.setAttribute "address", host
+			connector.setAttribute "port", httpPort
+		}
+
+		connector.URIEncoding = "UTF-8"
+
+		if (httpsPort) {
+			configureSsl host, httpsPort
+		}
+	}
 
 	/**
 	 * Shutdown the server.
@@ -192,15 +274,15 @@ abstract class TomcatServer implements EmbeddableServer {
 		}
 
 		getKeyToolClass().main(
-				"-genkey",
-				"-alias", "localhost",
-				"-dname", "CN=localhost,OU=Test,O=Test,C=US",
-				"-keyalg", "RSA",
-				"-validity", "365",
-				"-storepass", "key",
-				"-keystore", keystoreFile.absolutePath,
-				"-storepass", keyPassword,
-				"-keypass", keyPassword)
+				'-genkey',
+				'-alias', 'localhost',
+				'-dname', 'CN=localhost,OU=Test,O=Test,C=US',
+				'-keyalg', 'RSA',
+				'-validity', '365',
+				'-storepass', 'key',
+				'-keystore', keystoreFile.absolutePath,
+				'-storepass', keyPassword,
+				'-keypass', keyPassword)
 
 		println 'Created SSL Certificate.'
 	}

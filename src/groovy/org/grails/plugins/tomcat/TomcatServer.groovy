@@ -25,6 +25,7 @@ import groovy.transform.TypeCheckingMode
 
 import org.apache.catalina.Context
 import org.apache.catalina.connector.Connector
+import org.apache.catalina.core.AprLifecycleListener
 import org.apache.catalina.startup.Tomcat
 import org.apache.coyote.http11.Http11NioProtocol
 import org.apache.tomcat.util.scan.StandardJarScanner
@@ -86,6 +87,8 @@ abstract class TomcatServer implements EmbeddableServer {
 
 		tomcatDir.deleteDir()
 		new File(tomcatDir, 'webapps').mkdirs()
+
+		initListeners()
 	}
 
 	protected void initKeystore() {
@@ -114,6 +117,10 @@ abstract class TomcatServer implements EmbeddableServer {
 		truststoreFile = new File(truststore)
 	}
 
+	protected void initListeners() {
+		tomcat.server.addLifecycleListener new AprLifecycleListener(SSLEngine: 'on', useAprConnector: true)
+	}
+
 	@CompileStatic(TypeCheckingMode.SKIP)
 	protected void configureSsl(String host, int httpsPort) {
 		def sslConnector
@@ -134,15 +141,30 @@ abstract class TomcatServer implements EmbeddableServer {
 			sslConnector.setAttribute 'address', host
 		}
 
-		sslConnector.setAttribute 'keystoreFile', keystoreFile.absolutePath
-		sslConnector.setAttribute 'keystorePass', keyPassword
-
-		if (truststoreFile.exists()) {
-			CONSOLE.addStatus "Using truststore $truststore"
-			sslConnector.setAttribute 'truststoreFile', truststore
-			sslConnector.setAttribute 'truststorePass', trustPassword
-			sslConnector.setAttribute 'clientAuth', getConfigParam('clientAuth') ?: 'want'
+		def certificateKeyFile = getConfigParam('certificateKeyFile') ?: ''
+		def certificateFile = getConfigParam('certificateFile') ?: ''
+		if (certificateKeyFile && certificateFile) {
+			sslConnector.setAttribute 'SSLHonorCipherOrder', false
+			sslConnector.setAttribute 'SSLCertificateKeyFile', certificateKeyFile
+			sslConnector.setAttribute 'SSLCertificateFile', certificateFile
+			def certificateKeyPassword = getConfigParam('certificateKeyPassword') ?: ''
+			if (certificateKeyPassword) {
+				sslConnector.setAttribute 'SSLPassword', certificateKeyPassword
+			}
 		}
+		else {
+			sslConnector.setAttribute 'keystoreFile', keystoreFile.absolutePath
+			sslConnector.setAttribute 'keystorePass', keyPassword
+
+			if (truststoreFile.exists()) {
+				CONSOLE.addStatus "Using truststore $truststore"
+				sslConnector.setAttribute 'truststoreFile', truststore
+				sslConnector.setAttribute 'truststorePass', trustPassword
+				sslConnector.setAttribute 'clientAuth', getConfigParam('clientAuth') ?: 'want'
+			}
+		}
+
+		sslConnector.addUpgradeProtocol loadInstance('org.apache.coyote.http2.Http2Protocol')
 
 		tomcat.service.addConnector sslConnector
 	}

@@ -28,7 +28,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 /**
- * A loader instance used for the embedded version of Tomcat 8.
+ * A loader instance used for the embedded version of Tomcat.
  *
  * @author Graeme Rocher
  * @since 2.0

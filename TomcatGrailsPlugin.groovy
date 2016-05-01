@@ -15,7 +15,7 @@
  */
 class TomcatGrailsPlugin {
 	def version = '8.5.2'
-	def grailsVersion = '2.3 > *'
+	def grailsVersion = '2.5 > *'
 	def scopes = [excludes: 'war']
 	def title = 'Apache Tomcat plugin'
 	def description = 'Makes Tomcat 8.5.x the servlet container for Grails at development time'

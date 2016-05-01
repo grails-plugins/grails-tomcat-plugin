@@ -105,7 +105,7 @@ abstract class TomcatServer implements EmbeddableServer {
 		}
 
 		def userTruststore = getConfigParam('truststorePath')
-		if (userKeystore) {
+		if (userTruststore) {
 			truststore = userTruststore
 			trustPassword = getConfigParam('truststorePassword') ?: 'changeit'
 		}

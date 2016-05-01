@@ -27,6 +27,7 @@ import org.apache.catalina.Loader
 import org.apache.catalina.WebResourceRoot
 import org.apache.catalina.startup.Tomcat
 import org.apache.catalina.webresources.StandardRoot
+import org.apache.tomcat.util.descriptor.web.ContextResource
 import org.codehaus.groovy.grails.plugins.GrailsPluginUtils
 import org.grails.plugins.tomcat.fork.ForkedTomcatServer
 
@@ -128,16 +129,16 @@ class InlineExplodedTomcatServer extends TomcatServer {
 				return
 			}
 
-			if (!resCfg["type"]) {
+			if (!resCfg.type) {
 				throw new IllegalArgumentException("Must supply a resource type for JNDI configuration")
 			}
 
-			def res = loadInstance('org.apache.catalina.deploy.ContextResource')
-			res.name = name
-			res.type = resCfg.remove("type")
-			res.auth = resCfg.remove("auth")
-			res.description = resCfg.remove("description")
-			res.scope = resCfg.remove("scope")
+			def res = new ContextResource(
+				auth: resCfg.remove('auth'),
+				description: resCfg.remove("description"),
+				name: name,
+				scope: resCfg.remove('scope'),
+				type: resCfg.remove('type'))
 
 			// now it's only the custom properties left in the Map...
 			resCfg.each { key, value -> res.setProperty key, value }

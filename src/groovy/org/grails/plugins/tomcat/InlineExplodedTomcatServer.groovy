@@ -37,7 +37,11 @@ import org.grails.plugins.tomcat.fork.ForkedTomcatServer
 @CompileStatic
 class InlineExplodedTomcatServer extends TomcatServer {
 
+	protected ClassLoader forkedClassLoader
+
 	InlineExplodedTomcatServer(String basedir, String webXml, String contextPath, ClassLoader classLoader) {
+
+		this.forkedClassLoader = classLoader
 
 		if (contextPath == '/') {
 			contextPath = ''

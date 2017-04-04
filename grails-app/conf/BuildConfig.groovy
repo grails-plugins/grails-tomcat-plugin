@@ -19,13 +19,10 @@ grails.project.dependency.resolution = {
 
 	dependencies {
 		String tomcatVersion = '8.5.2'
-		compile "org.apache.tomcat.embed:tomcat-embed-core:$tomcatVersion", { exclude 'ecj' }
+		compile "org.apache.tomcat.embed:tomcat-embed-core:$tomcatVersion"
 		['el', 'jasper', 'logging-log4j', 'logging-juli', 'websocket'].each {
-			runtime "org.apache.tomcat.embed:tomcat-embed-$it:$tomcatVersion", { exclude 'ecj' }
+			runtime "org.apache.tomcat.embed:tomcat-embed-$it:$tomcatVersion"
 		}
-
-		// TODO use 'org.eclipse.jdt.core.compiler:ecj:4.5' when it's available in Maven Central
-		runtime 'org.eclipse.scout.sdk.deps:ecj:4.5'
 	}
 
 	plugins {

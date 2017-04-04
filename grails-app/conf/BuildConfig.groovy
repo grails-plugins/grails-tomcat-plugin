@@ -4,28 +4,28 @@ if (System.getenv('TRAVIS_BRANCH')) {
 }
 
 grails.project.work.dir = 'target'
-grails.project.dependency.resolver = 'maven'
 
+grails.project.dependency.resolver = 'maven'
 grails.project.dependency.resolution = {
 
 	inherits 'global'
 	log 'warn'
 
 	repositories {
-		grailsCentral()
 		mavenLocal()
+		grailsCentral()
 		mavenCentral()
 	}
 
 	dependencies {
-		String tomcatVersion = '8.0.30'
-
-		compile "org.apache.tomcat.embed:tomcat-embed-core:$tomcatVersion"
+		String tomcatVersion = '8.5.2'
+		compile "org.apache.tomcat.embed:tomcat-embed-core:$tomcatVersion", { exclude 'ecj' }
 		['el', 'jasper', 'logging-log4j', 'logging-juli', 'websocket'].each {
-			runtime "org.apache.tomcat.embed:tomcat-embed-$it:$tomcatVersion"
+			runtime "org.apache.tomcat.embed:tomcat-embed-$it:$tomcatVersion", { exclude 'ecj' }
 		}
 
-		provided 'javax.servlet:javax.servlet-api:3.1.0'
+		// TODO use 'org.eclipse.jdt.core.compiler:ecj:4.5' when it's available in Maven Central
+		runtime 'org.eclipse.scout.sdk.deps:ecj:4.5'
 	}
 
 	plugins {

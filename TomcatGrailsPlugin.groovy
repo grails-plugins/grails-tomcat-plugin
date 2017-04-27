@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 class TomcatGrailsPlugin {
-	def version = '8.0.33'
+	def version = '8.0.43'
 	def grailsVersion = '2.3 > *'
 	def scopes = [excludes: 'war']
 	def title = 'Apache Tomcat plugin'

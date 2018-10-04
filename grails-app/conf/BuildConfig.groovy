@@ -18,7 +18,7 @@ grails.project.dependency.resolution = {
 
     dependencies {
 
-        String tomcatVersion = "7.0.70"
+        String tomcatVersion = "7.0.91"
 
         runtime("org.apache.tomcat:tomcat-catalina-ant:$tomcatVersion") {
             excludes 'org.apache.tomcat:tomcat-catalina', 'org.apache.tomcat:tomcat-coyote'
@@ -33,7 +33,7 @@ grails.project.dependency.resolution = {
         runtime "org.apache.tomcat.embed:tomcat-embed-websocket:$tomcatVersion"
 
         // needed for JSP compilation
-        runtime "org.eclipse.jdt.core.compiler:ecj:3.7.2"
+        runtime "org.eclipse.jdt.core.compiler:ecj:4.4.2"
 
         // needed for JNDI
         optional 'commons-dbcp:commons-dbcp:1.4'

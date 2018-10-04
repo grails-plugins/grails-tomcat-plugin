@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 class TomcatGrailsPlugin {
-    def version = "7.0.70"
+    def version = "7.0.91"
     def grailsVersion = "2.3 > *"
     def scopes = [excludes: 'war']
     def author = "Graeme Rocher"
@@ -22,7 +22,7 @@ class TomcatGrailsPlugin {
     def description = 'Makes Tomcat 7.0 the default servlet container for Grails at development time.'
     def documentation = "http://grails.org/plugin/tomcat"
     def license = 'APACHE'
-    def organization = [name: 'Pivotal', url: 'http://www.gopivotal.com/oss']
-    def issueManagement = [system: 'JIRA', url: 'http://jira.grails.org/browse/GPTOMCAT']
+    def organization = [name: 'Grails', url: 'http://www.grails.org']
+    def issueManagement = [url: 'https://github.com/grails-plugins/grails-tomcat-plugin/issues']
     def scm = [url: 'https://github.com/grails-plugins/grails-tomcat-plugin']
 }

@@ -18,12 +18,14 @@ grails.project.dependency.resolution = {
 	}
 
 	dependencies {
-		String tomcatVersion = '9.0.0.M4'
+		String tomcatVersion = '9.0.17'
 		compile "org.apache.tomcat.embed:tomcat-embed-core:$tomcatVersion"
-		['el', 'jasper', 'logging-log4j', 'logging-juli', 'websocket'].each {
+		['el', 'jasper', 'websocket'].each {
 			runtime "org.apache.tomcat.embed:tomcat-embed-$it:$tomcatVersion"
 		}
-	}
+		runtime "org.apache.tomcat.embed:tomcat-embed-logging-juli:9.0.0.M6"
+		runtime "org.apache.tomcat.embed:tomcat-embed-logging-log4j:9.0.0.M6"
+    }
 
 	plugins {
 		build ':release:3.1.2', ':rest-client-builder:2.1.1', {
